@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Maze ADHD Game</title>
+  <style>
+    body {
+      font-family: 'Comic Sans MS', cursive;
+      background: linear-gradient(to right, #a8edea, #fed6e3);
+      text-align: center;
+      margin: 0;
+    }
+    h1 { margin-top: 20px; }
+    #game {
+      display: grid;
+      margin: 20px auto;
+      gap: 2px;
+      width: fit-content;
+      touch-action: manipulation;
+    }
+    .cell {
+      width: 25px;
+      height: 25px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      border-radius: 5px;
+    }
+    .wall { background: #37474f; }
+    .path { background: #ffffff; }
+    .entry { background: #81c784; }
+    .exit { background: #e57373; }
+    .trap { background: #ff1744; animation: flash 1s infinite alternate; }
+    .coin {
+      background: gold;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    .player {
+      background: #64b5f6;
+      animation: bounce 0.5s infinite alternate;
+    }
+
+    @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+    @keyframes flash { from { opacity: 0.5; } to { opacity: 1; } }
+    @keyframes spin { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }
+
+    select, button {
+      font-size: 1.2em;
+      padding: 8px 12px;
+      border-radius: 10px;
+      margin: 10px 5px;
+      border: none;
+      cursor: pointer;
+    }
+    button {
+      background-color: #64b5f6;
+      color: white;
+      box-shadow: 0 4px #1976d2;
+      transition: 0.2s;
+    }
+    button:active {
+      box-shadow: none;
+      transform: translateY(2px);
+    }
+
+    #popup {
+      display: none;
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      padding: 20px;
+      border: 2px solid #444;
+      border-radius: 15px;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <h1>Maze ADHD Game</h1>
+  <p>Use arrow keys or touch to move. Reach the red exit!</p>
+
+  <!-- Avatar Picker -->
+  <label>Choose Avatar:</label>
+  <select id="avatarSelect">
+    <option value="🧒">🧒</option>
+    <option value="👧">👧</option>
+    <option value="🧙‍♂️">🧙‍♂️</option>
+    <option value="🐱">🐱</option>
+    <option value="🐸">🐸</option>
+  </select>
+
+  <!-- 🔐 Login Button -->
+  <div>
+    <button onclick="loginWithGoogle()">🔓 Sign in with Google</button>
+  </div>
+
+  <!-- 🎵 Audio -->
+  <audio id="bgmusic" autoplay loop>
+    <source src="https://cdn.pixabay.com/download/audio/2023/05/15/audio_3e6cde2072.mp3?filename=chill-vibes-145148.mp3" type="audio/mpeg">
+  </audio>
+
+  <!-- 🎮 Arrow Controls -->
+  <div>
+    <button onclick="movePlayer('ArrowUp')">⬆️</button><br>
+    <button onclick="movePlayer('ArrowLeft')">⬅️</button>
+    <button onclick="movePlayer('ArrowDown')">⬇️</button>
+    <button onclick="movePlayer('ArrowRight')">➡️</button>
+  </div>
+
+  <div id="game"></div>
+  <div id="scoreBoard"></div>
+  <div id="leaderboard" style="margin-top:30px;"></div>
+
+  <!-- 🎉 Level Popup -->
+  <div id="popup">
+    <h3>🎉 Level Complete!</h3>
+    <p id="popupText"></p>
+    <button onclick="nextLevel()">Next Level 🚀</button>
+  </div>
+
+  <!-- Firebase SDK + Game Code -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+    import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDS_qrOD5hcVTZv0KpGccSLqPt2dmEuO0s",
+      authDomain: "gonotgoadhd.firebaseapp.com",
+      databaseURL: "https://gonotgoadhd-default-rtdb.firebaseio.com",
+      projectId: "gonotgoadhd",
+      storageBucket: "gonotgoadhd.appspot.com",
+      messagingSenderId: "463297016422",
+      appId: "1:463297016422:web:b4809fb07f3c600c14f3a7"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const auth = getAuth();
+    const provider = new GoogleAuthProvider();
+
+    let userId = null, username = "Player", avatar = "🧒";
+    let maze = [], playerPos = 1, score = 0, coins = 0, startTime;
+    const mazeSize = 20;
+
+    window.loginWithGoogle = function () {
+      signInWithPopup(auth, provider).then(async (res) => {
+        const user = res.user;
+        userId = user.uid;
+        username = user.displayName || "Player";
+        avatar = document.getElementById('avatarSelect').value || "🧒";
+
+        const userRef = ref(db, `users/${userId}/profile`);
+        const snap = await get(userRef);
+        const today = new Date().toDateString();
+
+        if (!snap.exists() || snap.val().lastLogin !== today) {
+          score += 100;
+          coins += 10;
+          alert("🎁 Daily Login Reward! +100 points, +10 coins!");
+          await set(userRef, {
+            username,
+            avatar,
+            lastLogin: today,
+            highestScore: score
+          });
+        }
+
+        startGame();
+      }).catch(err => {
+        alert("Login failed: " + err.message);
+        console.error(err);
+      });
+    };
+
+    function generateMaze(size) {
+      const total = size * size, maze = Array(total).fill(1), visited = new Set();
+      let farthest = { index: 1 * size + 1, dist: 0 };
+
+      function carve(x, y, dist) {
+        const index = y * size + x;
+        visited.add(index);
+        if (dist > farthest.dist) farthest = { index, dist };
+        const dirs = [[0,-2],[0,2],[-2,0],[2,0]].sort(() => Math.random() - 0.5);
+        for (let [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy, ni = ny * size + nx, mid = ((y+ny)/2)*size + ((x+nx)/2);
+          if (nx > 0 && ny > 0 && nx < size-1 && ny < size-1 && !visited.has(ni)) {
+            maze[ni] = 0; maze[mid] = 0;
+            carve(nx, ny, dist + 1);
+          }
+        }
+      }
+
+      maze[1 * size + 1] = 0;
+      carve(1, 1, 0);
+      maze[1 * size + 1] = 2;
+      maze[farthest.index] = 3;
+
+      for (let i = 0; i < total; i++) {
+        if (maze[i] === 0 && Math.random() < 0.05 && i !== playerPos && i !== farthest.index) {
+          maze[i] = Math.random() < 0.6 ? 4 : 5; // 60% coin, 40% trap
+        }
+      }
+      return maze;
+    }
+
+    function drawMaze() {
+      const board = document.getElementById('game');
+      board.innerHTML = '';
+      board.style.gridTemplateColumns = `repeat(${mazeSize}, 25px)`;
+      maze.forEach((cell, i) => {
+        const d = document.createElement('div');
+        d.classList.add('cell');
+        if (i === playerPos) { d.classList.add('player'); d.textContent = avatar; }
+        else if (cell === 1) d.classList.add('wall');
+        else if (cell === 2) d.classList.add('entry');
+        else if (cell === 3) d.classList.add('exit');
+        else if (cell === 4) d.classList.add('coin');
+        else if (cell === 5) d.classList.add('trap');
+        else d.classList.add('path');
+        board.appendChild(d);
+      });
+
+      document.getElementById('scoreBoard').innerText = `👤 ${username} | 🧠 Score: ${score} | 🪙 Coins: ${coins}`;
+    }
+
+    function movePlayer(dir) {
+      let next = playerPos;
+      if (dir === 'ArrowUp') next -= mazeSize;
+      if (dir === 'ArrowDown') next += mazeSize;
+      if (dir === 'ArrowLeft') next -= 1;
+      if (dir === 'ArrowRight') next += 1;
+      if (maze[next] === 1 || next < 0 || next >= maze.length) return;
+
+      if (maze[next] === 3) {
+        const time = Math.floor((Date.now() - startTime) / 1000);
+        score += 100;
+        push(ref(db, `users/${userId}/games`), {
+          username, avatar, score, coinsCollected: coins, timeTaken: time,
+          timestamp: new Date().toISOString()
+        });
+        showLevelPopup(time, score, coins);
+        return;
+      }
+
+      if (maze[next] === 4) { score += 20; coins++; maze[next] = 0; }
+      if (maze[next] === 5) { score -= 30; alert("💥 Trap!"); }
+
+      playerPos = next;
+      drawMaze();
+    }
+
+    function startGame() {
+      maze = generateMaze(mazeSize);
+      playerPos = maze.indexOf(2);
+      score = score || 0;
+      coins = coins || 0;
+      startTime = Date.now();
+      drawMaze();
+      loadLeaderboard();
+    }
+
+    function showLevelPopup(time, score, coins) {
+      document.getElementById("popupText").innerHTML = `
+        Time: <b>${time}s</b><br>
+        Score: <b>${score}</b><br>
+        Coins: <b>${coins}</b>
+      `;
+      document.getElementById("popup").style.display = "block";
+    }
+
+    function nextLevel() {
+      document.getElementById("popup").style.display = "none";
+      startGame();
+    }
+
+    function loadLeaderboard() {
+      get(ref(db, 'users')).then(snapshot => {
+        const scores = [];
+        snapshot.forEach(user => {
+          user.child('games').forEach(game => scores.push(game.val()));
+        });
+        scores.sort((a, b) => b.score - a.score);
+        document.getElementById('leaderboard').innerHTML = `
+          <h3>🏆 Leaderboard</h3>
+          ${scores.slice(0, 10).map((s, i) => `#${i+1} ${s.username} (${s.avatar}) – ${s.score} pts – ${s.coinsCollected} coins – ${s.timeTaken}s`).join('<br>')}
+        `;
+      });
+    }
+
+    document.addEventListener('keydown', e => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) movePlayer(e.key);
+    });
+
+    let touchX, touchY;
+    document.addEventListener('touchstart', e => {
+      touchX = e.touches[0].clientX;
+      touchY = e.touches[0].clientY;
+    });
+    document.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - touchX;
+      const dy = e.changedTouches[0].clientY - touchY;
+      if (Math.abs(dx) > Math.abs(dy)) movePlayer(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
+      else movePlayer(dy > 0 ? 'ArrowDown' : 'ArrowUp');
+    });
+  </script>
+</body>
+</html>
