@@ -1,386 +1,616 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Maze ADHD Game</title>
-  <style>
-    body {
-      font-family: 'Comic Sans MS', cursive;
-      background: linear-gradient(to right, #a8edea, #fed6e3);
-      text-align: center;
-      margin: 0;
-    }
-    h1 { margin-top: 20px; }
-    #game {
-      display: grid;
-      margin: 20px auto;
-      gap: 2px;
-      width: fit-content;
-      touch-action: manipulation;
-    }
-    .cell {
-      width: 25px;
-      height: 25px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      border-radius: 5px;
-    }
-    .wall { background: #37474f; }
-    .path { background: #ffffff; }
-    .entry { background: #81c784; }
-    .exit { background: #e57373; }
-    .trap { background: #ff1744; animation: flash 1s infinite alternate; }
-    .coin {
-      background: gold;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    .player {
-      background: #64b5f6;
-      animation: bounce 0.5s infinite alternate;
-    }
-
-    @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-5px); } }
-    @keyframes flash { from { opacity: 0.5; } to { opacity: 1; } }
-    @keyframes spin { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }
-
-    select, button {
-      font-size: 1.2em;
-      padding: 8px 12px;
-      border-radius: 10px;
-      margin: 10px 5px;
-      border: none;
-      cursor: pointer;
-    }
-    button {
-      background-color: #64b5f6;
-      color: white;
-      box-shadow: 0 4px #1976d2;
-      transition: 0.2s;
-    }
-    button:active {
-      box-shadow: none;
-      transform: translateY(2px);
-    }
-
-    #popup {
-      display: none;
-      position: fixed;
-      top: 30%;
-      left: 50%;
-      transform: translateX(-50%);
-      background: white;
-      padding: 20px;
-      border: 2px solid #444;
-      border-radius: 15px;
-      z-index: 100;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Maze Runner AI with Firebase</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #F3F4F6; overflow: hidden; }
+        #game-container { width: 100vw; height: 100vh; display: none; position: fixed; top: 0; left: 0; }
+        .hud { position: fixed; top: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-start; z-index: 10; pointer-events: none; }
+        .hud-info { text-shadow: 0 0 10px rgba(0, 255, 255, 0.7); }
+        #hint-button-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 12;
+        }
+        #hint-button { pointer-events: all; background-color: rgba(0, 255, 255, 0.2); border: 1px solid rgba(0, 255, 255, 0.7); padding: 0.5rem 1rem; border-radius: 0.5rem; transition: all 0.2s; }
+        #hint-button:hover { background-color: rgba(0, 255, 255, 0.4); }
+        #hint-button:disabled { background-color: rgba(100, 100, 100, 0.2); border-color: rgba(100, 100, 100, 0.5); color: #9CA3AF; cursor: not-allowed; }
+        #hint-display { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background-color: rgba(17, 24, 39, 0.8); padding: 1rem; border-radius: 0.5rem; border: 1px solid rgba(0, 255, 255, 0.5); z-index: 25; text-align: center; max-width: 80%; opacity: 0; transition: opacity 0.5s; pointer-events: none; }
+        #minimap-container { position: fixed; top: 20px; right: 20px; border: 2px solid rgba(0, 255, 255, 0.5); background-color: rgba(17, 24, 39, 0.75); border-radius: 8px; padding: 5px; z-index: 11; }
+        #minimap { display: block; }
+        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(17, 24, 39, 0.95); padding: 2rem; border-radius: 1rem; border: 1px solid rgba(0, 255, 255, 0.5); box-shadow: 0 0 20px rgba(0, 255, 255, 0.5); text-align: center; z-index: 20; display: none; width: 90%; max-width: 400px; }
+        .modal-input { width: 100%; background-color: #374151; border: 1px solid #4B5563; color: white; padding: 0.75rem; border-radius: 0.5rem; margin-bottom: 1rem; }
+        .modal-button { width: 100%; padding: 0.75rem; border-radius: 0.5rem; font-weight: bold; transition: background-color 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+        .modal-button-primary { background-color: #06B6D4; color: white; }
+        .modal-button-primary:hover { background-color: #0891B2; }
+        .modal-button-secondary { background-color: transparent; border: 1px solid #06B6D4; color: #06B6D4; margin-top: 0.5rem; }
+        .modal-button-secondary:hover { background-color: rgba(6, 182, 212, 0.1); }
+        .modal-button-google { background-color: #DB4437; color: white; margin-top: 1rem; }
+        .modal-button-google:hover { background-color: #C33D2E; }
+        #auth-error { color: #F87171; margin-top: 1rem; display: none; min-height: 1.5rem; }
+        .auth-view { display: none; } /* Hide auth views by default */
+        .auth-view.active { display: block; }
+        .auth-toggle-link { color: #06B6D4; cursor: pointer; text-decoration: underline; margin-top: 1rem; display: block; }
+        .touch-controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; z-index: 15; gap: 1rem; }
+        .touch-btn { width: 60px; height: 60px; background-color: rgba(0, 255, 255, 0.2); border: 2px solid rgba(0, 255, 255, 0.7); border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; font-size: 24px; user-select: none; }
+        @media (hover: none) and (pointer: coarse) { .touch-controls { display: flex; } }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <h1>Maze ADHD Game</h1>
-  <p>Use arrow keys or touch to move. Reach the red exit!</p>
+    <div id="game-container"></div>
 
-  <!-- Avatar Picker -->
-  <label>Choose Avatar:</label>
-  <select id="avatarSelect">
-    <option value="🧒">🧒</option>
-    <option value="👧">👧</option>
-    <option value="🧙‍♂️">🧙‍♂️</option>
-    <option value="🐱">🐱</option>
-    <option value="🐸">🐸</option>
-  </select>
+    <div class="hud">
+        <div class="hud-info">
+            <div id="level-display" class="text-2xl font-bold">Level: 1</div>
+            <div id="time-display" class="text-2xl font-bold">Time: 0s</div>
+        </div>
+    </div>
+    
+    <div id="hint-button-container">
+        <button id="hint-button">Get Hint ✨</button>
+    </div>
 
-  <!-- 🔐 Login Button -->
-  <div>
-    <button onclick="loginWithGoogle()">🔓 Sign in with Google</button>
-  </div>
+    <div id="hint-display"></div>
 
-  <!-- 🎵 Audio -->
-  <audio id="bgmusic" autoplay loop>
-    <source src="https://cdn.pixabay.com/download/audio/2023/05/15/audio_3e6cde2072.mp3?filename=chill-vibes-145148.mp3" type="audio/mpeg">
-  </audio>
+    <div id="minimap-container">
+        <canvas id="minimap"></canvas>
+    </div>
 
-  <!-- 🎮 Arrow Controls -->
+    <div id="level-complete-modal" class="modal">
+        <h2 id="message-title" class="text-3xl font-bold mb-4">Level Complete!</h2>
+        <p id="message-text" class="mb-4"></p>
+        <p id="score-text" class="text-2xl font-bold text-yellow-300 mb-4"></p>
+        <p id="ai-analysis-text" class="text-cyan-300 italic"></p>
+        <button id="start-button" class="modal-button modal-button-primary mt-6">Start Next Level</button>
+    </div>
 
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal">
+        <!-- Login View -->
+        <div id="login-view" class="auth-view active">
+            <h2 class="text-3xl font-bold mb-6">Player Login</h2>
+            <input type="email" id="login-email" placeholder="Email" class="modal-input">
+            <input type="password" id="login-password" placeholder="Password" class="modal-input">
+            <button id="login-button" class="modal-button modal-button-primary">Login</button>
+            <span class="auth-toggle-link" data-target="signup-view">Need an account? Sign Up</span>
+        </div>
 
-  <div id="game"></div>
-  <div id="scoreBoard"></div>
-  <div id="leaderboard" style="margin-top:30px;"></div>
-  <div>
-    <button onclick="movePlayer('ArrowUp')">⬆️</button><br>
-    <button onclick="movePlayer('ArrowLeft')">⬅️</button>
-    <button onclick="movePlayer('ArrowDown')">⬇️</button>
-    <button onclick="movePlayer('ArrowRight')">➡️</button>
-  </div>
-  <!-- 🎉 Level Popup -->
-  <div id="popup">
-    <h3>🎉 Level Complete!</h3>
-    <p id="popupText"></p>
-    <button onclick="nextLevel()">Next Level 🚀</button>
-  </div>
-<div id="adminButtons" style="display:none; margin-top:20px;">
-  <h3>🛡️ Admin Controls</h3>
-  <button onclick="downloadCSV()">📥 Download CSV</button>
-  <button onclick="clearLeaderboard()">🗑️ Clear Leaderboard</button>
-</div>
+        <!-- Signup View -->
+        <div id="signup-view" class="auth-view">
+            <h2 class="text-3xl font-bold mb-6">Create Account</h2>
+            <input type="text" id="signup-name" placeholder="Name" class="modal-input">
+            <input type="number" id="signup-age" placeholder="Age" class="modal-input">
+            <select id="signup-gender" class="modal-input">
+                <option value="" disabled selected>Select Gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="non-binary">Non-binary</option>
+                <option value="prefer-not-to-say">Prefer not to say</option>
+            </select>
+            <input type="email" id="signup-email" placeholder="Email" class="modal-input">
+            <input type="password" id="signup-password" placeholder="Password" class="modal-input">
+            <button id="signup-button" class="modal-button modal-button-primary">Create Account</button>
+            <span class="auth-toggle-link" data-target="login-view">Already have an account? Login</span>
+        </div>
 
+        <!-- Common Auth Elements -->
+        <div class="relative flex py-4 items-center">
+            <div class="flex-grow border-t border-gray-600"></div>
+            <span class="flex-shrink mx-4 text-gray-400">OR</span>
+            <div class="flex-grow border-t border-gray-600"></div>
+        </div>
+        <button id="google-login-button" class="modal-button modal-button-google">
+            <svg class="w-5 h-5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 18 19"><path fill-rule="evenodd" d="M8.842 18.083a8.8 8.8 0 0 1-8.65-8.948 8.841 8.841 0 0 1 8.8-8.652h.153a8.464 8.464 0 0 1 5.7 2.257l-2.193 2.038A5.27 5.27 0 0 0 9.09 3.4a5.882 5.882 0 0 0-.2 11.76h.124a5.091 5.091 0 0 0 5.248-4.057L14.3 11H9V8h8.342A8.8 8.8 0 0 1 8.842 18.083Z" clip-rule="evenodd"/></svg>
+            Sign in with Google
+        </button>
+        <p id="auth-error"></p>
+    </div>
 
-  <!-- Firebase SDK + Game Code -->
- <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
-  import { getDatabase, ref, push, set, get, update, remove } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
-  import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+    <div class="touch-controls">
+        <div id="touch-up" class="touch-btn">▲</div>
+        <div id="touch-left" class="touch-btn">◄</div>
+        <div id="touch-down" class="touch-btn">▼</div>
+        <div id="touch-right" class="touch-btn">►</div>
+    </div>
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyDS_qrOD5hcVTZv0KpGccSLqPt2dmEuO0s",
-    authDomain: "gonotgoadhd.firebaseapp.com",
-    databaseURL: "https://gonotgoadhd-default-rtdb.firebaseio.com",
-    projectId: "gonotgoadhd",
-    storageBucket: "gonotgoadhd.appspot.com",
-    messagingSenderId: "463297016422",
-    appId: "1:463297016422:web:b4809fb07f3c600c14f3a7"
-  };
+    <script type="module">
+        // --- Firebase Libraries ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-  const app = initializeApp(firebaseConfig);
-  const db = getDatabase(app);
-  const auth = getAuth();
-  const provider = new GoogleAuthProvider();
+        // --- Firebase Config ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCPxzRMVf1LhRBRoxlhGmEklTlXUIN8InU",
+            authDomain: "mazerun-c6bd4.firebaseapp.com",
+            projectId: "mazerun-c6bd4",
+            storageBucket: "mazerun-c6bd4.firebasestorage.app",
+            messagingSenderId: "926208962870",
+            appId: "1:926208962870:web:152b0d9142e31012c3c397",
+            measurementId: "G-84NWJ7YPT3"
+        };
 
-  let userId = null, username = "Player", avatar = "🧒", isAdmin = false;
-  let age = "", gender = "", email = "";
-  let maze = [], playerPos = 1, score = 0, coins = 0, startTime;
-  const mazeSize = 20;
-  const adminEmail = "pavi261105@gmail.com";
-
-  window.loginWithGoogle = function () {
-    signInWithPopup(auth, provider).then(async (res) => {
-      const user = res.user;
-      userId = user.uid;
-      email = user.email;
-      username = user.displayName || "Player";
-      avatar = document.getElementById('avatarSelect').value || "🧒";
-
-      isAdmin = (email === adminEmail);
-
-      const profileRef = ref(db, `users/${userId}/profile`);
-      const snap = await get(profileRef);
-      const today = new Date().toDateString();
-
-      if (!snap.exists()) {
-        age = prompt("Enter your age:");
-        gender = prompt("Enter your gender:");
-        await set(profileRef, {
-          username,
-          avatar,
-          email,
-          age,
-          gender,
-          lastLogin: today,
-          highestScore: score
-        });
-        score += 100;
-        coins += 10;
-        alert("🎁 New Player Bonus! +100 points, +10 coins!");
-      } else {
-        const data = snap.val();
-        age = data.age;
-        gender = data.gender;
-        if (data.lastLogin !== today) {
-          score += 100;
-          coins += 10;
-          alert("🎁 Daily Login Bonus! +100 points, +10 coins!");
+        // --- Firebase Initialization ---
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            console.log("Firebase initialized successfully.");
+        } catch (e) {
+            console.error("Firebase initialization failed. Please check your config.", e);
+            alert("Firebase is not configured correctly. Please check the script.");
         }
-        await update(profileRef, { lastLogin: today });
-      }
 
-      if (isAdmin) {
-        document.getElementById("adminButtons").style.display = "block";
-        console.log("🛡️ Admin logged in");
-      }
+        // --- DOM Elements ---
+        const gameContainer = document.getElementById('game-container');
+        const levelDisplay = document.getElementById('level-display');
+        const timeDisplay = document.getElementById('time-display');
+        const levelCompleteModal = document.getElementById('level-complete-modal');
+        const messageTitle = document.getElementById('message-title');
+        const messageText = document.getElementById('message-text');
+        const scoreText = document.getElementById('score-text');
+        const aiAnalysisText = document.getElementById('ai-analysis-text');
+        const startButton = document.getElementById('start-button');
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapCtx = minimapCanvas.getContext('2d');
+        const hintButton = document.getElementById('hint-button');
+        const hintDisplay = document.getElementById('hint-display');
+        const authModal = document.getElementById('auth-modal');
+        const authError = document.getElementById('auth-error');
+        const authToggleLinks = document.querySelectorAll('.auth-toggle-link');
 
-      startGame();
-    }).catch(err => {
-      alert("Login failed: " + err.message);
-    });
-  };
+        // --- Game State ---
+        let scene, camera, renderer, player, clock;
+        let maze, mazeMesh, endGoal, endPos;
+        let level = 1, score = 0, hintsUsed = 0;
+        let gameActive = false, timerInterval, elapsedTime = 0;
+        let wallTexture, currentUser = null, gameInitialized = false;
 
-  function generateMaze(size) {
-    const total = size * size, maze = Array(total).fill(1), visited = new Set();
-    let farthest = { index: 1 * size + 1, dist: 0 };
+        // --- Game Constants ---
+        const WALL_HEIGHT = 5, PLAYER_SPEED = 5.0, PLAYER_TURN_SPEED = Math.PI * 0.5;
+        const PLAYER_RADIUS = 0.5, CELL_SIZE = 5, MINIMAP_CELL_SIZE = 5, HINT_COOLDOWN = 15000;
 
-    function carve(x, y, dist) {
-      const index = y * size + x;
-      visited.add(index);
-      if (dist > farthest.dist) farthest = { index, dist };
-      const dirs = [[0,-2],[0,2],[-2,0],[2,0]].sort(() => Math.random() - 0.5);
-      for (let [dx, dy] of dirs) {
-        const nx = x + dx, ny = y + dy, ni = ny * size + nx, mid = ((y+ny)/2)*size + ((x+nx)/2);
-        if (nx > 0 && ny > 0 && nx < size-1 && ny < size-1 && !visited.has(ni)) {
-          maze[ni] = 0; maze[mid] = 0;
-          carve(nx, ny, dist + 1);
+        // --- Player State ---
+        const keyboard = {};
+        let playerDirection = new THREE.Vector3(0, 0, -1);
+
+        // --- Gemini API Function ---
+        async function callGemini(prompt) {
+            hintButton.disabled = true;
+            const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+            const payload = { contents: chatHistory };
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            try {
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!response.ok) throw new Error(`API call failed with status: ${response.status}`);
+                const result = await response.json();
+                if (result.candidates?.[0]?.content?.parts?.[0]) return result.candidates[0].content.parts[0].text;
+                return "Sorry, I couldn't think of anything right now.";
+            } catch (error) {
+                console.error("Error calling Gemini API:", error);
+                return "My thoughts are clouded... please try again later.";
+            } finally {
+                setTimeout(() => { if (gameActive) hintButton.disabled = false; }, HINT_COOLDOWN);
+            }
         }
-      }
-    }
 
-    maze[1 * size + 1] = 0;
-    carve(1, 1, 0);
-    maze[1 * size + 1] = 2;
-    maze[farthest.index] = 3;
-
-    for (let i = 0; i < total; i++) {
-      if (maze[i] === 0 && Math.random() < 0.05 && i !== playerPos && i !== farthest.index) {
-        maze[i] = Math.random() < 0.6 ? 4 : 5;
-      }
-    }
-    return maze;
-  }
-
-  function drawMaze() {
-    const board = document.getElementById('game');
-    board.innerHTML = '';
-    board.style.gridTemplateColumns = `repeat(${mazeSize}, 25px)`;
-    maze.forEach((cell, i) => {
-      const d = document.createElement('div');
-      d.classList.add('cell');
-      if (i === playerPos) { d.classList.add('player'); d.textContent = avatar; }
-      else if (cell === 1) d.classList.add('wall');
-      else if (cell === 2) d.classList.add('entry');
-      else if (cell === 3) d.classList.add('exit');
-      else if (cell === 4) d.classList.add('coin');
-      else if (cell === 5) d.classList.add('trap');
-      else d.classList.add('path');
-      board.appendChild(d);
-    });
-
-    document.getElementById('scoreBoard').innerText = `👤 ${username} | 🧠 Score: ${score} | 🪙 Coins: ${coins}`;
-  }
-
-  function movePlayer(dir) {
-    let next = playerPos;
-    if (dir === 'ArrowUp') next -= mazeSize;
-    if (dir === 'ArrowDown') next += mazeSize;
-    if (dir === 'ArrowLeft') next -= 1;
-    if (dir === 'ArrowRight') next += 1;
-    if (maze[next] === 1 || next < 0 || next >= maze.length) return;
-
-    if (maze[next] === 3) {
-      const time = Math.floor((Date.now() - startTime) / 1000);
-      score += 100;
-      push(ref(db, `users/${userId}/games`), {
-        username, avatar, age, gender, email,
-        score, coinsCollected: coins, timeTaken: time,
-        timestamp: new Date().toISOString()
-      });
-      showLevelPopup(time, score, coins);
-      return;
-    }
-
-    if (maze[next] === 4) { score += 20; coins++; maze[next] = 0; }
-    if (maze[next] === 5) { score -= 30; alert("💥 Trap!"); }
-
-    playerPos = next;
-    drawMaze();
-  }
-
-  function startGame() {
-    maze = generateMaze(mazeSize);
-    playerPos = maze.indexOf(2);
-    score = score || 0;
-    coins = coins || 0;
-    startTime = Date.now();
-    drawMaze();
-    loadLeaderboard();
-  }
-
-  function showLevelPopup(time, score, coins) {
-    document.getElementById("popupText").innerHTML = `
-      Time: <b>${time}s</b><br>
-      Score: <b>${score}</b><br>
-      Coins: <b>${coins}</b>
-    `;
-    document.getElementById("popup").style.display = "block";
-  }
-
-  function nextLevel() {
-    document.getElementById("popup").style.display = "none";
-    startGame();
-  }
-
-  function loadLeaderboard() {
-    get(ref(db, 'users')).then(snapshot => {
-      const scores = [];
-      snapshot.forEach(user => {
-        user.child('games').forEach(game => scores.push(game.val()));
-      });
-      scores.sort((a, b) => b.score - a.score);
-      document.getElementById('leaderboard').innerHTML = `
-        <h3>🏆 Leaderboard</h3>
-        ${scores.slice(0, 10).map((s, i) => `#${i+1} ${s.username} (${s.avatar}) – ${s.score} pts – ${s.coinsCollected} coins – ${s.timeTaken}s`).join('<br>')}
-      `;
-    });
-  }
-
-  document.addEventListener('keydown', e => {
-    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) movePlayer(e.key);
-  });
-
-  document.addEventListener('touchstart', e => {
-    touchX = e.touches[0].clientX;
-    touchY = e.touches[0].clientY;
-  });
-  document.addEventListener('touchend', e => {
-    const dx = e.changedTouches[0].clientX - touchX;
-    const dy = e.changedTouches[0].clientY - touchY;
-    if (Math.abs(dx) > Math.abs(dy)) movePlayer(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
-    else movePlayer(dy > 0 ? 'ArrowDown' : 'ArrowUp');
-  });
-
-  // ✅ Admin-only: Download CSV
-  window.downloadCSV = function () {
-    if (!isAdmin) return alert("🚫 Admin only!");
-    get(ref(db, 'users')).then(snapshot => {
-      const rows = [["Username", "Avatar", "Age", "Gender", "Email", "Score", "Coins", "Time", "Date"]];
-      snapshot.forEach(user => {
-        const profile = user.child("profile").val() || {};
-        user.child("games").forEach(game => {
-          const g = game.val();
-          rows.push([
-            g.username, g.avatar, profile.age || "", profile.gender || "", g.email || "",
-            g.score, g.coinsCollected, g.timeTaken, g.timestamp
-          ]);
+        // --- Firebase Auth ---
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                currentUser = user;
+                authModal.style.display = 'none';
+                await loadGameData();
+                if (!gameInitialized) initGame();
+            } else {
+                currentUser = null;
+                authModal.style.display = 'block';
+                document.getElementById('login-view').classList.add('active');
+                document.getElementById('signup-view').classList.remove('active');
+                gameContainer.style.display = 'none';
+                gameInitialized = false;
+            }
         });
-      });
-
-      const csv = rows.map(r => r.join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "leaderboard.csv";
-      a.click();
-    });
-  };
-
-  // ✅ Admin-only: Clear all scores
-  window.clearLeaderboard = function () {
-    if (!isAdmin) return alert("🚫 Admin only!");
-    if (confirm("Are you sure you want to delete all leaderboard data?")) {
-      get(ref(db, 'users')).then(snapshot => {
-        const updates = {};
-        snapshot.forEach(user => updates[`users/${user.key}/games`] = null);
-        update(ref(db), updates).then(() => {
-          alert("✅ Leaderboard cleared.");
-          loadLeaderboard();
+        
+        authToggleLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                const targetId = e.target.dataset.target;
+                document.querySelectorAll('.auth-view').forEach(view => view.classList.remove('active'));
+                document.getElementById(targetId).classList.add('active');
+            });
         });
-      });
-    }
-  };
-</script>
 
+        document.getElementById('login-button').addEventListener('click', () => {
+            authError.style.display = 'none';
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            signInWithEmailAndPassword(auth, email, password)
+                .catch(error => { authError.textContent = error.message; authError.style.display = 'block'; });
+        });
+
+        document.getElementById('signup-button').addEventListener('click', () => {
+            authError.style.display = 'none';
+            const name = document.getElementById('signup-name').value;
+            const age = document.getElementById('signup-age').value;
+            const gender = document.getElementById('signup-gender').value;
+            const email = document.getElementById('signup-email').value;
+            const password = document.getElementById('signup-password').value;
+
+            if (!name || !age || !gender || !email || !password) {
+                authError.textContent = "Please fill out all fields.";
+                authError.style.display = 'block';
+                return;
+            }
+
+            createUserWithEmailAndPassword(auth, email, password)
+                .then(async (userCredential) => {
+                    const user = userCredential.user;
+                    // Create player profile document
+                    await setDoc(doc(db, "players", user.uid), {
+                        name: name,
+                        age: parseInt(age),
+                        gender: gender,
+                        email: user.email,
+                        level: 1, // Start at level 1
+                        createdAt: new Date()
+                    });
+                })
+                .catch(error => { authError.textContent = error.message; authError.style.display = 'block'; });
+        });
+
+        document.getElementById('google-login-button').addEventListener('click', () => {
+            authError.style.display = 'none';
+            const provider = new GoogleAuthProvider();
+            signInWithPopup(auth, provider)
+                .then(async (result) => {
+                    // Check if user is new, if so create a profile
+                    const user = result.user;
+                    const userDocRef = doc(db, "players", user.uid);
+                    const docSnap = await getDoc(userDocRef);
+                    if (!docSnap.exists()) {
+                         await setDoc(userDocRef, {
+                            name: user.displayName,
+                            email: user.email,
+                            level: 1,
+                            createdAt: new Date()
+                        });
+                    }
+                })
+                .catch((error) => {
+                    authError.textContent = error.message;
+                    authError.style.display = 'block';
+                });
+        });
+
+        // --- Firebase Data ---
+        async function saveLevelData(analysis) {
+            if (!currentUser) return;
+            // Save level-specific data to a sub-collection
+            const levelDataRef = collection(db, "players", currentUser.uid, "levelData");
+            await addDoc(levelDataRef, {
+                level: level,
+                time: elapsedTime,
+                score: score,
+                hintsUsed: hintsUsed,
+                aiAnalysis: analysis,
+                completedAt: new Date()
+            });
+            // Update the main player document with their current level
+            await setDoc(doc(db, "players", currentUser.uid), { level: level + 1 }, { merge: true });
+        }
+
+        async function loadGameData() {
+            if (!currentUser) return;
+            const userDocRef = doc(db, "players", currentUser.uid);
+            try {
+                const docSnap = await getDoc(userDocRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    level = data.level || 1;
+                    console.log(`Welcome back, ${data.name}! Starting at level ${level}.`);
+                } else {
+                    console.log("New player document will be created.");
+                    level = 1;
+                }
+            } catch (error) {
+                console.error("Error loading game data:", error);
+                level = 1;
+            }
+        }
+
+        // --- Core Game Functions ---
+        function initGame() {
+            gameContainer.style.display = 'block';
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111827);
+            scene.fog = new THREE.Fog(0x111827, 40, 150);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            gameContainer.appendChild(renderer.domElement);
+            
+            clock = new THREE.Clock();
+            const ambientLight = new THREE.AmbientLight(0x606080, 1.5);
+            scene.add(ambientLight);
+            const pointLight = new THREE.PointLight(0xffffff, 1.5, 200);
+            pointLight.castShadow = true;
+            camera.add(pointLight);
+            scene.add(camera);
+            player = camera;
+            wallTexture = createWallTexture();
+            
+            window.addEventListener('resize', onWindowResize, false);
+            document.addEventListener('keydown', (e) => keyboard[e.code] = true);
+            document.addEventListener('keyup', (e) => keyboard[e.code] = false);
+            setupTouchControls();
+            
+            startButton.addEventListener('click', () => {
+                levelCompleteModal.style.display = 'none';
+                startLevel();
+            });
+            hintButton.addEventListener('click', getHint);
+            
+            gameInitialized = true;
+            startLevel();
+            animate();
+        }
+
+        function startLevel() {
+            gameActive = true;
+            elapsedTime = 0;
+            hintsUsed = 0;
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                elapsedTime++;
+                timeDisplay.textContent = `Time: ${elapsedTime}s`;
+            }, 1000);
+            levelDisplay.textContent = `Level: ${level}`;
+            timeDisplay.textContent = `Time: 0s`;
+
+            if (mazeMesh) { scene.remove(mazeMesh); mazeMesh.geometry.dispose(); mazeMesh.material.dispose(); }
+            const oldFloor = scene.getObjectByName("mazeFloor");
+            if (oldFloor) { scene.remove(oldFloor); oldFloor.geometry.dispose(); oldFloor.material.dispose(); }
+            if (endGoal) { scene.remove(endGoal); if (endGoal.geometry) endGoal.geometry.dispose(); if (endGoal.material) endGoal.material.dispose(); }
+
+            const mazeSize = 29 + level * 2;
+            maze = generateMaze(mazeSize, mazeSize);
+            buildMazeMesh();
+            minimapCanvas.width = maze[0].length * MINIMAP_CELL_SIZE;
+            minimapCanvas.height = maze.length * MINIMAP_CELL_SIZE;
+            player.position.set(CELL_SIZE, WALL_HEIGHT / 2 - 1, CELL_SIZE);
+            player.rotation.set(0, 0, 0);
+            playerDirection.set(0, 0, -1);
+            endPos = findEndPosition();
+            endGoal = createEndGoal(endPos.x, endPos.z);
+            scene.add(endGoal);
+            hintButton.disabled = false;
+        }
+
+        async function nextLevel() {
+            gameActive = false;
+            hintButton.disabled = true;
+            const lastLevelTime = elapsedTime;
+            const lastLevel = level;
+            
+            score = Math.max(0, (maze.length * 50) - (lastLevelTime * 5) - (hintsUsed * 25));
+
+            messageTitle.textContent = `Level ${lastLevel} Complete!`;
+            messageText.textContent = `Time: ${lastLevelTime}s | Hints: ${hintsUsed}`;
+            scoreText.textContent = `Score: ${score}`;
+            aiAnalysisText.textContent = '✨ Analyzing performance...';
+            levelCompleteModal.style.display = 'block';
+            
+            const analysisPrompt = `You are an encouraging coach for a brain-training maze game. The player just completed Level ${lastLevel} in ${lastLevelTime} seconds, scored ${score} points, and used ${hintsUsed} hints. Provide a short, positive, and analytical comment. Focus on concepts like 'focus', 'efficiency', or 'perseverance'. Keep it under 3 sentences.`;
+            const analysis = await callGemini(analysisPrompt);
+            aiAnalysisText.textContent = analysis;
+            
+            await saveLevelData(analysis);
+            level++;
+        }
+        
+        function generateMaze(width, height) {
+            const maze = Array(height).fill(null).map(() => Array(width).fill(1));
+            function carve(x, y) {
+                maze[y][x] = 0;
+                const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+                directions.sort(() => Math.random() - 0.5);
+                for (let [dx, dy] of directions) {
+                    const nx = x + dx * 2, ny = y + dy * 2;
+                    if (ny >= 0 && ny < height && nx >= 0 && nx < width && maze[ny][nx] === 1) {
+                        maze[y + dy][x + dx] = 0;
+                        carve(nx, ny);
+                    }
+                }
+            }
+            carve(1, 1);
+            maze[height-2][width-2] = 2;
+            return maze;
+        }
+
+        function createWallTexture() {
+            const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64;
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#4A5568'; context.fillRect(0, 0, 64, 64);
+            context.strokeStyle = '#2D3748'; context.lineWidth = 2; context.strokeRect(0, 0, 64, 64);
+            context.beginPath(); context.moveTo(0, 32); context.lineTo(64, 32); context.moveTo(32, 0); context.lineTo(32, 64); context.stroke();
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(1, WALL_HEIGHT / CELL_SIZE);
+            return texture;
+        }
+
+        function buildMazeMesh() {
+            const wallGeometries = [];
+            for (let y = 0; y < maze.length; y++) {
+                for (let x = 0; x < maze[0].length; x++) {
+                    if (maze[y][x] === 1) {
+                        const wallGeo = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, CELL_SIZE);
+                        wallGeo.translate(x * CELL_SIZE, WALL_HEIGHT / 2, y * CELL_SIZE);
+                        wallGeometries.push(wallGeo);
+                    }
+                }
+            }
+            if (wallGeometries.length > 0) {
+                const mergedWallGeometry = THREE.BufferGeometryUtils.mergeBufferGeometries(wallGeometries, false);
+                const wallMaterial = new THREE.MeshStandardMaterial({ map: wallTexture, roughness: 0.9, metalness: 0.1 });
+                mazeMesh = new THREE.Mesh(mergedWallGeometry, wallMaterial);
+                mazeMesh.castShadow = true; mazeMesh.receiveShadow = true; scene.add(mazeMesh);
+            }
+            const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x2D3748, roughness: 0.8 });
+            const floorGeo = new THREE.PlaneGeometry(maze[0].length * CELL_SIZE, maze.length * CELL_SIZE);
+            const floor = new THREE.Mesh(floorGeo, floorMaterial);
+            floor.name = "mazeFloor"; floor.rotation.x = -Math.PI / 2; floor.position.y = 0;
+            floor.position.x = (maze[0].length * CELL_SIZE) / 2 - CELL_SIZE / 2;
+            floor.position.z = (maze.length * CELL_SIZE) / 2 - CELL_SIZE / 2;
+            floor.receiveShadow = true; scene.add(floor);
+        }
+
+        function createEndGoal(x, z) {
+            const geometry = new THREE.BoxGeometry(CELL_SIZE * 0.5, CELL_SIZE * 0.5, CELL_SIZE * 0.5);
+            const material = new THREE.MeshStandardMaterial({ color: 0x10B981, emissive: 0x059669, emissiveIntensity: 2 });
+            const cube = new THREE.Mesh(geometry, material);
+            cube.position.set(x * CELL_SIZE, WALL_HEIGHT / 2, z * CELL_SIZE);
+            const pointLight = new THREE.PointLight(0x10B981, 3, 20);
+            cube.add(pointLight);
+            return cube;
+        }
+        
+        function findEndPosition() {
+            for (let y = maze.length - 1; y >= 0; y--) {
+                for (let x = maze[0].length - 1; x >= 0; x--) {
+                    if (maze[y][x] === 2) return { x: x, z: y };
+                }
+            }
+            return { x: maze[0].length - 2, z: maze.length - 2 };
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!gameActive || !renderer) return;
+            const delta = clock.getDelta();
+            updatePlayer(delta);
+            if(endGoal) {
+                endGoal.rotation.y += delta * 0.5;
+                endGoal.position.y = (WALL_HEIGHT / 2) + Math.sin(Date.now() * 0.002) * 0.5;
+            }
+            drawMinimap();
+            renderer.render(scene, camera);
+        }
+
+        function updatePlayer(delta) {
+            const moveSpeed = PLAYER_SPEED * delta;
+            const rotateSpeed = PLAYER_TURN_SPEED * delta;
+            let moveDirection = 0, turnDirection = 0;
+            if (keyboard['KeyW'] || keyboard['ArrowUp']) moveDirection = 1;
+            if (keyboard['KeyS'] || keyboard['ArrowDown']) moveDirection = -1;
+            if (keyboard['KeyA'] || keyboard['ArrowLeft']) turnDirection = 1; 
+            if (keyboard['KeyD'] || keyboard['ArrowRight']) turnDirection = -1;
+            
+            if (turnDirection !== 0) {
+                player.rotation.y += turnDirection * rotateSpeed;
+                playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), turnDirection * rotateSpeed);
+            }
+            
+            if (moveDirection !== 0) {
+                const moveVector = playerDirection.clone().multiplyScalar(moveSpeed * moveDirection);
+                const nextPosition = player.position.clone().add(moveVector);
+                if (!checkCollision(nextPosition)) {
+                    player.position.copy(nextPosition);
+                }
+            }
+            
+            if (endGoal && player.position.distanceTo(endGoal.position) < CELL_SIZE / 2) {
+                nextLevel();
+            }
+        }
+        
+        function checkCollision(pos) {
+            const checkPoints = [
+                new THREE.Vector3(pos.x + PLAYER_RADIUS, pos.y, pos.z + PLAYER_RADIUS),
+                new THREE.Vector3(pos.x + PLAYER_RADIUS, pos.y, pos.z - PLAYER_RADIUS),
+                new THREE.Vector3(pos.x - PLAYER_RADIUS, pos.y, pos.z + PLAYER_RADIUS),
+                new THREE.Vector3(pos.x - PLAYER_RADIUS, pos.y, pos.z - PLAYER_RADIUS)
+            ];
+            for (const point of checkPoints) {
+                const gridX = Math.round(point.x / CELL_SIZE);
+                const gridZ = Math.round(point.z / CELL_SIZE);
+                if (gridZ < 0 || gridZ >= maze.length || gridX < 0 || gridX >= maze[0].length) return true;
+                if (maze[gridZ][gridX] === 1) return true;
+            }
+            return false;
+        }
+
+        function drawMinimap() {
+            minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+            for (let y = 0; y < maze.length; y++) {
+                for (let x = 0; x < maze[0].length; x++) {
+                    if (maze[y][x] === 1) minimapCtx.fillStyle = '#4A5568';
+                    else if (maze[y][x] === 2) minimapCtx.fillStyle = '#10B981';
+                    else minimapCtx.fillStyle = 'rgba(200, 200, 200, 0.1)';
+                    minimapCtx.fillRect(x * MINIMAP_CELL_SIZE, y * MINIMAP_CELL_SIZE, MINIMAP_CELL_SIZE, MINIMAP_CELL_SIZE);
+                }
+            }
+            const playerX = player.position.x / CELL_SIZE * MINIMAP_CELL_SIZE;
+            const playerZ = player.position.z / CELL_SIZE * MINIMAP_CELL_SIZE;
+            minimapCtx.fillStyle = '#00FFFF';
+            minimapCtx.beginPath();
+            minimapCtx.arc(playerX, playerZ, MINIMAP_CELL_SIZE / 2, 0, 2 * Math.PI);
+            minimapCtx.fill();
+        }
+
+        async function getHint() {
+            hintsUsed++;
+            hintButton.disabled = true;
+            hintButton.textContent = 'Thinking...';
+            const playerGridX = Math.round(player.position.x / CELL_SIZE);
+            const playerGridZ = Math.round(player.position.z / CELL_SIZE);
+            const hintPrompt = `You are a mysterious guide in a 3D maze game. The player is lost and needs a hint. Provide a short, cryptic, and encouraging hint based on their position relative to the exit. Do not give direct instructions like 'go left' or coordinates. Instead, give thematic advice. The player is at (${playerGridX}, ${playerGridZ}) and the exit is at (${endPos.x}, ${endPos.z}). The maze top-left is (0,0).`;
+            const hint = await callGemini(hintPrompt);
+            hintDisplay.textContent = hint;
+            hintDisplay.style.opacity = '1';
+            hintButton.textContent = 'Get Hint ✨';
+            setTimeout(() => { hintDisplay.style.opacity = '0'; }, 7000);
+            setTimeout(() => { if(gameActive) hintButton.disabled = false; }, HINT_COOLDOWN);
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer) return;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function setupTouchControls() {
+            const up = document.getElementById('touch-up'), down = document.getElementById('touch-down'), left = document.getElementById('touch-left'), right = document.getElementById('touch-right');
+            const setKey = (key, value) => keyboard[key] = value;
+            up.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowUp', true); }, { passive: false });
+            up.addEventListener('touchend', (e) => { e.preventDefault(); setKey('ArrowUp', false); });
+            down.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowDown', true); }, { passive: false });
+            down.addEventListener('touchend', (e) => { e.preventDefault(); setKey('ArrowDown', false); });
+            left.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowLeft', true); }, { passive: false });
+            left.addEventListener('touchend', (e) => { e.preventDefault(); setKey('ArrowLeft', false); });
+            right.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowRight', true); }, { passive: false });
+            right.addEventListener('touchend', (e) => { e.preventDefault(); setKey('ArrowRight', false); });
+        }
+
+        // --- Load external scripts and start auth check ---
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js';
+        document.head.appendChild(script);
+        // The onAuthStateChanged listener will handle game initialization once this script is loaded.
+    </script>
 </body>
 </html>
 
