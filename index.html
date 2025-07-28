@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Maze Runner </title>
+    <title>3D Maze Runner AI with Firebase</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     
@@ -176,7 +176,7 @@
         let maze, mazeMesh, endGoal, endPos;
         let level = 1, totalScore = 0, hintsUsed = 0, powerupsCollected = 0;
         let gameActive = false, timerInterval, elapsedTime = 0;
-        let wallTexture, currentUser = null, gameInitialized = false;
+        let wallTexture, floorTexture, currentUser = null, gameInitialized = false;
         let powerups = [];
 
         // --- Game Constants ---
@@ -343,8 +343,8 @@
         function initGame() {
             gameContainer.style.display = 'block';
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111827);
-            scene.fog = new THREE.Fog(0x111827, 40, 150);
+            scene.background = createSkybox();
+            scene.fog = new THREE.Fog(0x00001a, 50, 150);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -353,7 +353,7 @@
             gameContainer.appendChild(renderer.domElement);
             
             clock = new THREE.Clock();
-            const ambientLight = new THREE.AmbientLight(0x606080, 1.5);
+            const ambientLight = new THREE.AmbientLight(0x4c004c, 2);
             scene.add(ambientLight);
             const pointLight = new THREE.PointLight(0xffffff, 1.5, 200);
             pointLight.castShadow = true;
@@ -361,6 +361,7 @@
             scene.add(camera);
             player = camera;
             wallTexture = createWallTextureAtlas();
+            floorTexture = createFloorTexture();
             
             window.addEventListener('resize', onWindowResize, false);
             document.addEventListener('keydown', (e) => keyboard[e.code] = true);
@@ -466,32 +467,89 @@
             const drawTexture = (x, y, color, pattern) => {
                 ctx.fillStyle = color;
                 ctx.fillRect(x, y, 64, 64);
-                ctx.strokeStyle = '#2D3748';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(x, y, 64, 64);
-                if (pattern === 'lines') {
+                ctx.strokeStyle = '#00ffff';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#00ffff';
+                ctx.lineWidth = 1;
+                
+                if (pattern === 'grid') {
                     ctx.beginPath();
-                    for (let i = 0; i < 4; i++) {
-                        ctx.moveTo(x, y + i * 16);
-                        ctx.lineTo(x + 64, y + i * 16);
+                    for (let i = 8; i < 64; i += 8) {
+                        ctx.moveTo(x + i, y); ctx.lineTo(x + i, y + 64);
+                        ctx.moveTo(x, y + i); ctx.lineTo(x + 64, y + i);
                     }
                     ctx.stroke();
-                } else if (pattern === 'circle') {
+                } else if (pattern === 'circuit') {
                     ctx.beginPath();
-                    ctx.arc(x + 32, y + 32, 16, 0, Math.PI * 2);
+                    ctx.moveTo(x, y+32); ctx.lineTo(x+16, y+32); ctx.lineTo(x+16, y+16);
+                    ctx.moveTo(x+64, y+16); ctx.lineTo(x+48, y+16); ctx.lineTo(x+48, y+48);
+                    ctx.moveTo(x+32, y); ctx.lineTo(x+32, y+16);
+                    ctx.moveTo(x+16, y+64); ctx.lineTo(x+16, y+48);
                     ctx.stroke();
+                } else if (pattern === 'hex') {
+                    ctx.strokeStyle = '#ff00ff';
+                    ctx.shadowColor = '#ff00ff';
+                     for (let i = 0; i < 64; i+= 16) {
+                        ctx.strokeRect(x+i, y+i, 8, 8);
+                     }
                 }
             };
             
-            drawTexture(0, 0, '#4A5568'); // Default
-            drawTexture(64, 0, '#4A5568', 'lines'); // Lines
-            drawTexture(0, 64, '#4299E1', 'circle'); // Blue with circle
-            drawTexture(64, 64, '#48BB78'); // Green
+            ctx.shadowBlur = 0;
+            drawTexture(0, 0, '#1A202C');
+            drawTexture(64, 0, '#1A202C', 'circuit');
+            drawTexture(0, 64, '#1A202C', 'hex');
+            drawTexture(64, 64, '#1A202C', 'grid');
 
             const texture = new THREE.CanvasTexture(canvas);
             texture.wrapS = THREE.RepeatWrapping;
             texture.wrapT = THREE.RepeatWrapping;
             return texture;
+        }
+
+        function createFloorTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#00001a';
+            ctx.fillRect(0, 0, 512, 512);
+            ctx.strokeStyle = '#9f7aea';
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#9f7aea';
+
+            for (let i = 0; i < 512; i += 32) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke();
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            return texture;
+        }
+
+        function createSkybox() {
+            const canvases = [];
+            for (let i = 0; i < 6; i++) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512; canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#00001a';
+                ctx.fillRect(0, 0, 512, 512);
+                for (let j = 0; j < 400; j++) {
+                    const x = Math.random() * 512;
+                    const y = Math.random() * 512;
+                    const radius = Math.random() * 1.5;
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx.fillStyle = 'white';
+                    ctx.fill();
+                }
+                canvases.push(canvas);
+            }
+            const cubeTexture = new THREE.CubeTexture(canvases);
+            cubeTexture.needsUpdate = true;
+            return cubeTexture;
         }
 
         function buildMazeMesh() {
@@ -500,17 +558,13 @@
                 for (let x = 0; x < maze[0].length; x++) {
                     if (maze[y][x] === 1) {
                         const wallGeo = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, CELL_SIZE);
-                        
                         const quadrant = Math.floor(Math.random() * 4);
-                        const uOffset = (quadrant % 2) * 0.5;
-                        const vOffset = Math.floor(quadrant / 2) * 0.5;
-                        
+                        const uOffset = (quadrant % 2) * 0.5, vOffset = Math.floor(quadrant / 2) * 0.5;
                         const uvs = wallGeo.attributes.uv.array;
                         for (let i = 0; i < uvs.length; i += 2) {
                             uvs[i] = uvs[i] * 0.5 + uOffset;
                             uvs[i+1] = uvs[i+1] * 0.5 + vOffset;
                         }
-
                         wallGeo.translate(x * CELL_SIZE, WALL_HEIGHT / 2, y * CELL_SIZE);
                         wallGeometries.push(wallGeo);
                     }
@@ -522,7 +576,9 @@
                 mazeMesh = new THREE.Mesh(mergedWallGeometry, wallMaterial);
                 mazeMesh.castShadow = true; mazeMesh.receiveShadow = true; scene.add(mazeMesh);
             }
-            const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x2D3748, roughness: 0.8 });
+            
+            floorTexture.repeat.set(maze[0].length / 2, maze.length / 2);
+            const floorMaterial = new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.4, metalness: 0.6 });
             const floorGeo = new THREE.PlaneGeometry(maze[0].length * CELL_SIZE, maze.length * CELL_SIZE);
             const floor = new THREE.Mesh(floorGeo, floorMaterial);
             floor.name = "mazeFloor"; floor.rotation.x = -Math.PI / 2; floor.position.y = 0;
@@ -533,7 +589,7 @@
 
         function placePowerups() {
             const powerupGeo = new THREE.BoxGeometry(CELL_SIZE * 0.3, CELL_SIZE * 0.3, CELL_SIZE * 0.3);
-            const powerupMat = new THREE.MeshStandardMaterial({ color: 0x9F7AEA, emissive: 0x805AD5 });
+            const powerupMat = new THREE.MeshStandardMaterial({ color: 0x9F7AEA, emissive: 0x805AD5, emissiveIntensity: 1.5 });
             
             for (let i = 0; i < POWERUP_COUNT; i++) {
                 let placed = false;
