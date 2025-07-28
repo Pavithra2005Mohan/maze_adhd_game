@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Maze Runner </title>
+    <title>3D Maze Runner AI with Firebase</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     
@@ -67,8 +67,9 @@
 
     <div id="level-complete-modal" class="modal">
         <h2 id="message-title" class="text-3xl font-bold mb-4">Level Complete!</h2>
-        <p id="message-text" class="mb-4"></p>
-        <p id="score-text" class="text-2xl font-bold text-yellow-300 mb-4"></p>
+        <p id="message-text" class="mb-2"></p>
+        <p id="score-text" class="text-xl font-bold text-yellow-300"></p>
+        <p id="total-score-text" class="text-2xl font-bold text-yellow-400 mb-4"></p>
         <p id="ai-analysis-text" class="text-cyan-300 italic"></p>
         <button id="start-button" class="modal-button modal-button-primary mt-6">Start Next Level</button>
     </div>
@@ -159,6 +160,7 @@
         const messageTitle = document.getElementById('message-title');
         const messageText = document.getElementById('message-text');
         const scoreText = document.getElementById('score-text');
+        const totalScoreText = document.getElementById('total-score-text');
         const aiAnalysisText = document.getElementById('ai-analysis-text');
         const startButton = document.getElementById('start-button');
         const minimapCanvas = document.getElementById('minimap');
@@ -172,21 +174,24 @@
         // --- Game State ---
         let scene, camera, renderer, player, clock;
         let maze, mazeMesh, endGoal, endPos;
-        let level = 1, score = 0, hintsUsed = 0;
+        let level = 1, totalScore = 0, hintsUsed = 0, powerupsCollected = 0;
         let gameActive = false, timerInterval, elapsedTime = 0;
         let wallTexture, currentUser = null, gameInitialized = false;
+        let powerups = [];
 
         // --- Game Constants ---
-        const WALL_HEIGHT = 5, PLAYER_SPEED = 5.0, PLAYER_TURN_SPEED = Math.PI * 0.5;
+        const WALL_HEIGHT = 5, INITIAL_PLAYER_SPEED = 5.0, MAX_PLAYER_SPEED = 10.0, PLAYER_ACCELERATION = 2.5;
+        const PLAYER_TURN_SPEED = Math.PI * 0.5;
         const PLAYER_RADIUS = 0.5, CELL_SIZE = 5, MINIMAP_CELL_SIZE = 5, HINT_COOLDOWN = 15000;
+        const POWERUP_COUNT = 5, POWERUP_SCORE = 50;
 
         // --- Player State ---
         const keyboard = {};
         let playerDirection = new THREE.Vector3(0, 0, -1);
+        let currentSpeed = INITIAL_PLAYER_SPEED;
 
         // --- Gemini API Function ---
         async function callGemini(prompt) {
-            hintButton.disabled = true;
             const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
             const payload = { contents: chatHistory };
             const apiKey = "";
@@ -200,113 +205,116 @@
             } catch (error) {
                 console.error("Error calling Gemini API:", error);
                 return "My thoughts are clouded... please try again later.";
-            } finally {
-                setTimeout(() => { if (gameActive) hintButton.disabled = false; }, HINT_COOLDOWN);
             }
         }
 
         // --- Firebase Auth ---
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                currentUser = user;
-                authModal.style.display = 'none';
-                await loadGameData();
-                if (!gameInitialized) initGame();
-            } else {
-                currentUser = null;
-                authModal.style.display = 'block';
-                document.getElementById('login-view').classList.add('active');
-                document.getElementById('signup-view').classList.remove('active');
-                gameContainer.style.display = 'none';
-                gameInitialized = false;
-            }
-        });
-        
-        authToggleLinks.forEach(link => {
-            link.addEventListener('click', (e) => {
-                const targetId = e.target.dataset.target;
-                document.querySelectorAll('.auth-view').forEach(view => view.classList.remove('active'));
-                document.getElementById(targetId).classList.add('active');
+        function setupAuthListeners() {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    currentUser = user;
+                    authModal.style.display = 'none';
+                    await loadGameData();
+                    if (!gameInitialized) initGame();
+                } else {
+                    currentUser = null;
+                    authModal.style.display = 'block';
+                    document.getElementById('login-view').classList.add('active');
+                    document.getElementById('signup-view').classList.remove('active');
+                    gameContainer.style.display = 'none';
+                    gameInitialized = false;
+                }
             });
-        });
+            
+            authToggleLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    const targetId = e.target.dataset.target;
+                    document.querySelectorAll('.auth-view').forEach(view => view.classList.remove('active'));
+                    document.getElementById(targetId).classList.add('active');
+                });
+            });
 
-        document.getElementById('login-button').addEventListener('click', () => {
-            authError.style.display = 'none';
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            signInWithEmailAndPassword(auth, email, password)
-                .catch(error => { authError.textContent = error.message; authError.style.display = 'block'; });
-        });
+            document.getElementById('login-button').addEventListener('click', () => {
+                authError.style.display = 'none';
+                const email = document.getElementById('login-email').value;
+                const password = document.getElementById('login-password').value;
+                signInWithEmailAndPassword(auth, email, password)
+                    .catch(error => { authError.textContent = error.message; authError.style.display = 'block'; });
+            });
 
-        document.getElementById('signup-button').addEventListener('click', () => {
-            authError.style.display = 'none';
-            const name = document.getElementById('signup-name').value;
-            const age = document.getElementById('signup-age').value;
-            const gender = document.getElementById('signup-gender').value;
-            const email = document.getElementById('signup-email').value;
-            const password = document.getElementById('signup-password').value;
+            document.getElementById('signup-button').addEventListener('click', () => {
+                authError.style.display = 'none';
+                const name = document.getElementById('signup-name').value;
+                const age = document.getElementById('signup-age').value;
+                const gender = document.getElementById('signup-gender').value;
+                const email = document.getElementById('signup-email').value;
+                const password = document.getElementById('signup-password').value;
 
-            if (!name || !age || !gender || !email || !password) {
-                authError.textContent = "Please fill out all fields.";
-                authError.style.display = 'block';
-                return;
-            }
+                if (!name || !age || !gender || !email || !password) {
+                    authError.textContent = "Please fill out all fields.";
+                    authError.style.display = 'block';
+                    return;
+                }
 
-            createUserWithEmailAndPassword(auth, email, password)
-                .then(async (userCredential) => {
-                    const user = userCredential.user;
-                    // Create player profile document
-                    await setDoc(doc(db, "players", user.uid), {
-                        name: name,
-                        age: parseInt(age),
-                        gender: gender,
-                        email: user.email,
-                        level: 1, // Start at level 1
-                        createdAt: new Date()
-                    });
-                })
-                .catch(error => { authError.textContent = error.message; authError.style.display = 'block'; });
-        });
-
-        document.getElementById('google-login-button').addEventListener('click', () => {
-            authError.style.display = 'none';
-            const provider = new GoogleAuthProvider();
-            signInWithPopup(auth, provider)
-                .then(async (result) => {
-                    // Check if user is new, if so create a profile
-                    const user = result.user;
-                    const userDocRef = doc(db, "players", user.uid);
-                    const docSnap = await getDoc(userDocRef);
-                    if (!docSnap.exists()) {
-                         await setDoc(userDocRef, {
-                            name: user.displayName,
+                createUserWithEmailAndPassword(auth, email, password)
+                    .then(async (userCredential) => {
+                        const user = userCredential.user;
+                        await setDoc(doc(db, "players", user.uid), {
+                            name: name,
+                            age: parseInt(age),
+                            gender: gender,
                             email: user.email,
                             level: 1,
+                            totalScore: 0,
                             createdAt: new Date()
                         });
-                    }
-                })
-                .catch((error) => {
-                    authError.textContent = error.message;
-                    authError.style.display = 'block';
-                });
-        });
+                    })
+                    .catch(error => { authError.textContent = error.message; authError.style.display = 'block'; });
+            });
+
+            document.getElementById('google-login-button').addEventListener('click', () => {
+                authError.style.display = 'none';
+                const provider = new GoogleAuthProvider();
+                signInWithPopup(auth, provider)
+                    .then(async (result) => {
+                        const user = result.user;
+                        const userDocRef = doc(db, "players", user.uid);
+                        const docSnap = await getDoc(userDocRef);
+                        if (!docSnap.exists()) {
+                             await setDoc(userDocRef, {
+                                name: user.displayName,
+                                email: user.email,
+                                level: 1,
+                                totalScore: 0,
+                                createdAt: new Date()
+                            });
+                        }
+                    })
+                    .catch((error) => {
+                        authError.textContent = error.message;
+                        authError.style.display = 'block';
+                    });
+            });
+        }
 
         // --- Firebase Data ---
-        async function saveLevelData(analysis) {
+        async function saveLevelData(levelScore, analysis) {
             if (!currentUser) return;
-            // Save level-specific data to a sub-collection
+            totalScore += levelScore;
             const levelDataRef = collection(db, "players", currentUser.uid, "levelData");
             await addDoc(levelDataRef, {
                 level: level,
                 time: elapsedTime,
-                score: score,
+                score: levelScore,
                 hintsUsed: hintsUsed,
+                powerupsCollected: powerupsCollected,
                 aiAnalysis: analysis,
                 completedAt: new Date()
             });
-            // Update the main player document with their current level
-            await setDoc(doc(db, "players", currentUser.uid), { level: level + 1 }, { merge: true });
+            await setDoc(doc(db, "players", currentUser.uid), { 
+                level: level + 1,
+                totalScore: totalScore
+            }, { merge: true });
         }
 
         async function loadGameData() {
@@ -317,14 +325,17 @@
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     level = data.level || 1;
-                    console.log(`Welcome back, ${data.name}! Starting at level ${level}.`);
+                    totalScore = data.totalScore || 0;
+                    console.log(`Welcome back, ${data.name}! Starting at level ${level} with score ${totalScore}.`);
                 } else {
                     console.log("New player document will be created.");
                     level = 1;
+                    totalScore = 0;
                 }
             } catch (error) {
                 console.error("Error loading game data:", error);
                 level = 1;
+                totalScore = 0;
             }
         }
 
@@ -349,7 +360,7 @@
             camera.add(pointLight);
             scene.add(camera);
             player = camera;
-            wallTexture = createWallTexture();
+            wallTexture = createWallTextureAtlas();
             
             window.addEventListener('resize', onWindowResize, false);
             document.addEventListener('keydown', (e) => keyboard[e.code] = true);
@@ -371,6 +382,7 @@
             gameActive = true;
             elapsedTime = 0;
             hintsUsed = 0;
+            powerupsCollected = 0;
             clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 elapsedTime++;
@@ -379,14 +391,18 @@
             levelDisplay.textContent = `Level: ${level}`;
             timeDisplay.textContent = `Time: 0s`;
 
+            // Clear old objects
             if (mazeMesh) { scene.remove(mazeMesh); mazeMesh.geometry.dispose(); mazeMesh.material.dispose(); }
             const oldFloor = scene.getObjectByName("mazeFloor");
             if (oldFloor) { scene.remove(oldFloor); oldFloor.geometry.dispose(); oldFloor.material.dispose(); }
             if (endGoal) { scene.remove(endGoal); if (endGoal.geometry) endGoal.geometry.dispose(); if (endGoal.material) endGoal.material.dispose(); }
+            powerups.forEach(p => scene.remove(p));
+            powerups = [];
 
             const mazeSize = 29 + level * 2;
             maze = generateMaze(mazeSize, mazeSize);
             buildMazeMesh();
+            placePowerups();
             minimapCanvas.width = maze[0].length * MINIMAP_CELL_SIZE;
             minimapCanvas.height = maze.length * MINIMAP_CELL_SIZE;
             player.position.set(CELL_SIZE, WALL_HEIGHT / 2 - 1, CELL_SIZE);
@@ -404,20 +420,23 @@
             const lastLevelTime = elapsedTime;
             const lastLevel = level;
             
-            score = Math.max(0, (maze.length * 50) - (lastLevelTime * 5) - (hintsUsed * 25));
+            const levelScore = Math.max(0, Math.round((maze.length * 10) - (lastLevelTime * 2) - (hintsUsed * 25) + (powerupsCollected * POWERUP_SCORE)));
+            const newTotalScore = totalScore + levelScore;
 
             messageTitle.textContent = `Level ${lastLevel} Complete!`;
-            messageText.textContent = `Time: ${lastLevelTime}s | Hints: ${hintsUsed}`;
-            scoreText.textContent = `Score: ${score}`;
+            messageText.textContent = `Time: ${lastLevelTime}s | Hints: ${hintsUsed} | Powerups: ${powerupsCollected}`;
+            scoreText.textContent = `Level Score: +${levelScore}`;
+            totalScoreText.textContent = `Total Score: ${newTotalScore}`;
             aiAnalysisText.textContent = '✨ Analyzing performance...';
             levelCompleteModal.style.display = 'block';
             
-            const analysisPrompt = `You are an encouraging coach for a brain-training maze game. The player just completed Level ${lastLevel} in ${lastLevelTime} seconds, scored ${score} points, and used ${hintsUsed} hints. Provide a short, positive, and analytical comment. Focus on concepts like 'focus', 'efficiency', or 'perseverance'. Keep it under 3 sentences.`;
+            const analysisPrompt = `You are an encouraging coach for a brain-training maze game. The player just completed Level ${lastLevel} in ${lastLevelTime} seconds, scored ${levelScore} points, used ${hintsUsed} hints, and collected ${powerupsCollected} powerups. Provide a short, positive, and analytical comment. Focus on concepts like 'focus', 'efficiency', or 'perseverance'. Keep it under 3 sentences.`;
             const analysis = await callGemini(analysisPrompt);
             aiAnalysisText.textContent = analysis;
             
-            await saveLevelData(analysis);
+            await saveLevelData(levelScore, analysis);
             level++;
+            totalScore = newTotalScore;
         }
         
         function generateMaze(width, height) {
@@ -439,15 +458,39 @@
             return maze;
         }
 
-        function createWallTexture() {
-            const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64;
-            const context = canvas.getContext('2d');
-            context.fillStyle = '#4A5568'; context.fillRect(0, 0, 64, 64);
-            context.strokeStyle = '#2D3748'; context.lineWidth = 2; context.strokeRect(0, 0, 64, 64);
-            context.beginPath(); context.moveTo(0, 32); context.lineTo(64, 32); context.moveTo(32, 0); context.lineTo(32, 64); context.stroke();
+        function createWallTextureAtlas() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            const drawTexture = (x, y, color, pattern) => {
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, 64, 64);
+                ctx.strokeStyle = '#2D3748';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, 64, 64);
+                if (pattern === 'lines') {
+                    ctx.beginPath();
+                    for (let i = 0; i < 4; i++) {
+                        ctx.moveTo(x, y + i * 16);
+                        ctx.lineTo(x + 64, y + i * 16);
+                    }
+                    ctx.stroke();
+                } else if (pattern === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(x + 32, y + 32, 16, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            };
+            
+            drawTexture(0, 0, '#4A5568'); // Default
+            drawTexture(64, 0, '#4A5568', 'lines'); // Lines
+            drawTexture(0, 64, '#4299E1', 'circle'); // Blue with circle
+            drawTexture(64, 64, '#48BB78'); // Green
+
             const texture = new THREE.CanvasTexture(canvas);
-            texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping;
-            texture.repeat.set(1, WALL_HEIGHT / CELL_SIZE);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
             return texture;
         }
 
@@ -457,6 +500,17 @@
                 for (let x = 0; x < maze[0].length; x++) {
                     if (maze[y][x] === 1) {
                         const wallGeo = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, CELL_SIZE);
+                        
+                        const quadrant = Math.floor(Math.random() * 4);
+                        const uOffset = (quadrant % 2) * 0.5;
+                        const vOffset = Math.floor(quadrant / 2) * 0.5;
+                        
+                        const uvs = wallGeo.attributes.uv.array;
+                        for (let i = 0; i < uvs.length; i += 2) {
+                            uvs[i] = uvs[i] * 0.5 + uOffset;
+                            uvs[i+1] = uvs[i+1] * 0.5 + vOffset;
+                        }
+
                         wallGeo.translate(x * CELL_SIZE, WALL_HEIGHT / 2, y * CELL_SIZE);
                         wallGeometries.push(wallGeo);
                     }
@@ -475,6 +529,26 @@
             floor.position.x = (maze[0].length * CELL_SIZE) / 2 - CELL_SIZE / 2;
             floor.position.z = (maze.length * CELL_SIZE) / 2 - CELL_SIZE / 2;
             floor.receiveShadow = true; scene.add(floor);
+        }
+
+        function placePowerups() {
+            const powerupGeo = new THREE.BoxGeometry(CELL_SIZE * 0.3, CELL_SIZE * 0.3, CELL_SIZE * 0.3);
+            const powerupMat = new THREE.MeshStandardMaterial({ color: 0x9F7AEA, emissive: 0x805AD5 });
+            
+            for (let i = 0; i < POWERUP_COUNT; i++) {
+                let placed = false;
+                while (!placed) {
+                    const x = Math.floor(Math.random() * maze[0].length);
+                    const z = Math.floor(Math.random() * maze.length);
+                    if (maze[z][x] === 0) {
+                        const powerup = new THREE.Mesh(powerupGeo, powerupMat);
+                        powerup.position.set(x * CELL_SIZE, WALL_HEIGHT / 2, z * CELL_SIZE);
+                        scene.add(powerup);
+                        powerups.push(powerup);
+                        placed = true;
+                    }
+                }
+            }
         }
 
         function createEndGoal(x, z) {
@@ -501,16 +575,22 @@
             if (!gameActive || !renderer) return;
             const delta = clock.getDelta();
             updatePlayer(delta);
+
+            const time = Date.now() * 0.002;
             if(endGoal) {
                 endGoal.rotation.y += delta * 0.5;
-                endGoal.position.y = (WALL_HEIGHT / 2) + Math.sin(Date.now() * 0.002) * 0.5;
+                endGoal.position.y = (WALL_HEIGHT / 2) + Math.sin(time) * 0.5;
             }
+            powerups.forEach((p, i) => {
+                p.rotation.y += delta * 0.7;
+                p.position.y = (WALL_HEIGHT / 2) + Math.sin(time + i) * 0.4;
+            });
+
             drawMinimap();
             renderer.render(scene, camera);
         }
 
         function updatePlayer(delta) {
-            const moveSpeed = PLAYER_SPEED * delta;
             const rotateSpeed = PLAYER_TURN_SPEED * delta;
             let moveDirection = 0, turnDirection = 0;
             if (keyboard['KeyW'] || keyboard['ArrowUp']) moveDirection = 1;
@@ -524,13 +604,28 @@
             }
             
             if (moveDirection !== 0) {
-                const moveVector = playerDirection.clone().multiplyScalar(moveSpeed * moveDirection);
+                currentSpeed += PLAYER_ACCELERATION * delta;
+                if (currentSpeed > MAX_PLAYER_SPEED) currentSpeed = MAX_PLAYER_SPEED;
+
+                const moveVector = playerDirection.clone().multiplyScalar(currentSpeed * delta * moveDirection);
                 const nextPosition = player.position.clone().add(moveVector);
                 if (!checkCollision(nextPosition)) {
                     player.position.copy(nextPosition);
                 }
+            } else {
+                currentSpeed = INITIAL_PLAYER_SPEED;
             }
             
+            // Check powerup collision
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                const powerup = powerups[i];
+                if (player.position.distanceTo(powerup.position) < CELL_SIZE / 2) {
+                    scene.remove(powerup);
+                    powerups.splice(i, 1);
+                    powerupsCollected++;
+                }
+            }
+
             if (endGoal && player.position.distanceTo(endGoal.position) < CELL_SIZE / 2) {
                 nextLevel();
             }
@@ -574,13 +669,17 @@
             hintsUsed++;
             hintButton.disabled = true;
             hintButton.textContent = 'Thinking...';
+            
             const playerGridX = Math.round(player.position.x / CELL_SIZE);
             const playerGridZ = Math.round(player.position.z / CELL_SIZE);
             const hintPrompt = `You are a mysterious guide in a 3D maze game. The player is lost and needs a hint. Provide a short, cryptic, and encouraging hint based on their position relative to the exit. Do not give direct instructions like 'go left' or coordinates. Instead, give thematic advice. The player is at (${playerGridX}, ${playerGridZ}) and the exit is at (${endPos.x}, ${endPos.z}). The maze top-left is (0,0).`;
+            
             const hint = await callGemini(hintPrompt);
+            
             hintDisplay.textContent = hint;
             hintDisplay.style.opacity = '1';
             hintButton.textContent = 'Get Hint ✨';
+            
             setTimeout(() => { hintDisplay.style.opacity = '0'; }, 7000);
             setTimeout(() => { if(gameActive) hintButton.disabled = false; }, HINT_COOLDOWN);
         }
@@ -608,8 +707,11 @@
         // --- Load external scripts and start auth check ---
         const script = document.createElement('script');
         script.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js';
+        script.onload = () => {
+            // Now that BufferGeometryUtils is loaded, we can safely initialize Firebase and the game.
+            setupAuthListeners();
+        };
         document.head.appendChild(script);
-        // The onAuthStateChanged listener will handle game initialization once this script is loaded.
     </script>
 </body>
 </html>
