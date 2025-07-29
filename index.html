@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Maze Runner </title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D Maze Runner AI with Firebase</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     
@@ -34,12 +34,52 @@
         .modal-button-google { background-color: #DB4437; color: white; margin-top: 1rem; }
         .modal-button-google:hover { background-color: #C33D2E; }
         #auth-error { color: #F87171; margin-top: 1rem; display: none; min-height: 1.5rem; }
-        .auth-view { display: none; } /* Hide auth views by default */
+        .auth-view { display: none; }
         .auth-view.active { display: block; }
         .auth-toggle-link { color: #06B6D4; cursor: pointer; text-decoration: underline; margin-top: 1rem; display: block; }
-        .touch-controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; z-index: 15; gap: 1rem; }
-        .touch-btn { width: 60px; height: 60px; background-color: rgba(0, 255, 255, 0.2); border: 2px solid rgba(0, 255, 255, 0.7); border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; font-size: 24px; user-select: none; }
-        @media (hover: none) and (pointer: coarse) { .touch-controls { display: flex; } }
+        
+        /* Dual Joystick Styles */
+        .joystick-area {
+            position: fixed;
+            z-index: 15;
+            display: none; /* Hidden by default, shown on touch devices */
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+        }
+        #vertical-joystick-area {
+            bottom: 30px;
+            left: 20px;
+            width: 70px;
+            height: 140px;
+        }
+        #horizontal-joystick-area {
+            bottom: 30px;
+            left: 100px;
+            width: 140px;
+            height: 70px;
+        }
+        .joystick-knob {
+            position: absolute;
+            background: rgba(0, 255, 255, 0.4);
+            border: 2px solid rgba(0, 255, 255, 0.7);
+            border-radius: 50%;
+        }
+        #vertical-joystick-knob {
+            width: 50px; height: 50px;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #horizontal-joystick-knob {
+            width: 50px; height: 50px;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        @media (hover: none) and (pointer: coarse) {
+            .joystick-area {
+                display: block;
+            }
+        }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -116,12 +156,14 @@
         <p id="auth-error"></p>
     </div>
 
-    <div class="touch-controls">
-        <div id="touch-up" class="touch-btn">▲</div>
-        <div id="touch-left" class="touch-btn">◄</div>
-        <div id="touch-down" class="touch-btn">▼</div>
-        <div id="touch-right" class="touch-btn">►</div>
+    <!-- Dual Joystick UI -->
+    <div id="vertical-joystick-area" class="joystick-area">
+        <div id="vertical-joystick-knob" class="joystick-knob"></div>
     </div>
+    <div id="horizontal-joystick-area" class="joystick-area">
+        <div id="horizontal-joystick-knob" class="joystick-knob"></div>
+    </div>
+
 
     <script type="module">
         // --- Firebase Libraries ---
@@ -189,6 +231,7 @@
         const keyboard = {};
         let playerDirection = new THREE.Vector3(0, 0, -1);
         let currentSpeed = INITIAL_PLAYER_SPEED;
+        let lookDeltaX = 0;
 
         // --- Gemini API Function ---
         async function callGemini(prompt) {
@@ -366,7 +409,7 @@
             window.addEventListener('resize', onWindowResize, false);
             document.addEventListener('keydown', (e) => keyboard[e.code] = true);
             document.addEventListener('keyup', (e) => keyboard[e.code] = false);
-            setupTouchControls();
+            setupJoystickControls();
             
             startButton.addEventListener('click', () => {
                 levelCompleteModal.style.display = 'none';
@@ -648,28 +691,42 @@
 
         function updatePlayer(delta) {
             const rotateSpeed = PLAYER_TURN_SPEED * delta;
-            let moveDirection = 0, turnDirection = 0;
-            if (keyboard['KeyW'] || keyboard['ArrowUp']) moveDirection = 1;
-            if (keyboard['KeyS'] || keyboard['ArrowDown']) moveDirection = -1;
-            if (keyboard['KeyA'] || keyboard['ArrowLeft']) turnDirection = 1; 
+            let moveDirection = new THREE.Vector3();
+            let turnDirection = 0;
+
+            // Keyboard Turn
+            if (keyboard['KeyA'] || keyboard['ArrowLeft']) turnDirection = 1;
             if (keyboard['KeyD'] || keyboard['ArrowRight']) turnDirection = -1;
             
-            if (turnDirection !== 0) {
+            // Touch Look
+            if (lookDeltaX !== 0) {
+                player.rotation.y -= lookDeltaX * 0.002;
+                lookDeltaX = 0;
+            } else if (turnDirection !== 0) {
                 player.rotation.y += turnDirection * rotateSpeed;
-                playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), turnDirection * rotateSpeed);
             }
             
-            if (moveDirection !== 0) {
+            // Keyboard and Joystick Movement
+            if (keyboard['KeyW'] || keyboard['ArrowUp']) moveDirection.z = -1;
+            if (keyboard['KeyS'] || keyboard['ArrowDown']) moveDirection.z = 1;
+            if (keyboard['StrafeLeft']) moveDirection.x = -1;
+            if (keyboard['StrafeRight']) moveDirection.x = 1;
+            
+            if (moveDirection.length() > 0.1) {
                 currentSpeed += PLAYER_ACCELERATION * delta;
                 if (currentSpeed > MAX_PLAYER_SPEED) currentSpeed = MAX_PLAYER_SPEED;
+            } else {
+                currentSpeed = INITIAL_PLAYER_SPEED;
+            }
 
-                const moveVector = playerDirection.clone().multiplyScalar(currentSpeed * delta * moveDirection);
+            if (moveDirection.length() > 0) {
+                 moveDirection.normalize();
+                const moveVector = moveDirection.clone().applyQuaternion(player.quaternion);
+                moveVector.multiplyScalar(currentSpeed * delta);
                 const nextPosition = player.position.clone().add(moveVector);
                 if (!checkCollision(nextPosition)) {
                     player.position.copy(nextPosition);
                 }
-            } else {
-                currentSpeed = INITIAL_PLAYER_SPEED;
             }
             
             // Check powerup collision
@@ -747,17 +804,82 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        function setupTouchControls() {
-            const up = document.getElementById('touch-up'), down = document.getElementById('touch-down'), left = document.getElementById('touch-left'), right = document.getElementById('touch-right');
-            const setKey = (key, value) => keyboard[key] = value;
-            up.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowUp', true); }, { passive: false });
-            up.addEventListener('touchend', (e) => { e.preventDefault(); setKey('ArrowUp', false); });
-            down.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowDown', true); }, { passive: false });
-            down.addEventListener('touchend', (e) => { e.preventDefault(); setKey('ArrowDown', false); });
-            left.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowLeft', true); }, { passive: false });
-            left.addEventListener('touchend', (e) => { e.preventDefault(); setKey('ArrowLeft', false); });
-            right.addEventListener('touchstart', (e) => { e.preventDefault(); setKey('ArrowRight', true); }, { passive: false });
-            right.addEventListener('touchend', (e) => { e.preventDefault(); setKey('ArrowRight', false); });
+        function setupJoystickControls() {
+            const vJoystick = document.getElementById('vertical-joystick-area');
+            const hJoystick = document.getElementById('horizontal-joystick-area');
+            const vKnob = document.getElementById('vertical-joystick-knob');
+            const hKnob = document.getElementById('horizontal-joystick-knob');
+            
+            let lookStartPos = null;
+            let lookTouchId = null;
+
+            // Vertical Joystick (Forward/Backward)
+            vJoystick.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
+            vJoystick.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const rect = vJoystick.getBoundingClientRect();
+                const offsetY = touch.clientY - (rect.top + rect.height / 2);
+                const clampedY = Math.max(-rect.height/2, Math.min(rect.height/2, offsetY));
+                vKnob.style.transform = `translate(-50%, -50%) translateY(${clampedY}px)`;
+                
+                const ratio = clampedY / (rect.height / 2);
+                keyboard['KeyW'] = ratio < -0.2;
+                keyboard['KeyS'] = ratio > 0.2;
+            }, { passive: false });
+            vJoystick.addEventListener('touchend', (e) => {
+                vKnob.style.transform = `translate(-50%, -50%)`;
+                keyboard['KeyW'] = false;
+                keyboard['KeyS'] = false;
+            });
+
+            // Horizontal Joystick (Strafe)
+            hJoystick.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
+            hJoystick.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const rect = hJoystick.getBoundingClientRect();
+                const offsetX = touch.clientX - (rect.left + rect.width / 2);
+                const clampedX = Math.max(-rect.width/2, Math.min(rect.width/2, offsetX));
+                hKnob.style.transform = `translate(-50%, -50%) translateX(${clampedX}px)`;
+
+                const ratio = clampedX / (rect.width / 2);
+                keyboard['StrafeLeft'] = ratio < -0.2;
+                keyboard['StrafeRight'] = ratio > 0.2;
+            }, { passive: false });
+            hJoystick.addEventListener('touchend', (e) => {
+                hKnob.style.transform = `translate(-50%, -50%)`;
+                keyboard['StrafeLeft'] = false;
+                keyboard['StrafeRight'] = false;
+            });
+            
+            // Look Controls (Right side of screen)
+            gameContainer.addEventListener('touchstart', (e) => {
+                for (let touch of e.changedTouches) {
+                    if (touch.clientX > window.innerWidth / 2) {
+                        lookStartPos = { x: touch.clientX };
+                        lookTouchId = touch.identifier;
+                    }
+                }
+            }, { passive: false });
+
+            gameContainer.addEventListener('touchmove', (e) => {
+                for (let touch of e.changedTouches) {
+                    if (lookTouchId === touch.identifier) {
+                        lookDeltaX = touch.clientX - lookStartPos.x;
+                        lookStartPos = { x: touch.clientX };
+                    }
+                }
+            }, { passive: false });
+
+            gameContainer.addEventListener('touchend', (e) => {
+                for (let touch of e.changedTouches) {
+                    if (lookTouchId === touch.identifier) {
+                        lookTouchId = null;
+                        lookDeltaX = 0;
+                    }
+                }
+            });
         }
 
         // --- Load external scripts and start auth check ---
@@ -771,4 +893,3 @@
     </script>
 </body>
 </html>
-
